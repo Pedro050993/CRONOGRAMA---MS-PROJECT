@@ -1,0 +1,873 @@
+// Modelo de dados — Fase 1 (§18).
+// Principio: todo item tecnico mantem referencia a evidencia que o originou.
+// Nada e apagado: revisao gera nova versao; alteracao gera registro de auditoria.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Organizacao, usuarios e permissoes
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  users     User[]
+  projects  Project[]
+}
+
+enum OrgRole {
+  OWNER
+  MEMBER
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String       @unique
+  name           String
+  passwordHash   String
+  orgRole        OrgRole      @default(MEMBER)
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  memberships    ProjectMember[]
+  auditLogs      AuditLog[]
+  comments       Comment[]
+}
+
+/// ADMIN administra o projeto; PLANNER edita; REVIEWER aprova; VIEWER apenas le.
+enum ProjectRole {
+  ADMIN
+  PLANNER
+  REVIEWER
+  VIEWER
+}
+
+model ProjectMember {
+  id        String      @id @default(cuid())
+  projectId String
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      ProjectRole
+  createdAt DateTime    @default(now())
+
+  @@unique([projectId, userId])
+}
+
+// ---------------------------------------------------------------------------
+// Projeto
+// ---------------------------------------------------------------------------
+
+model Project {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  client         String?
+  contract       String?
+  scopeSummary   String?
+  site           String?
+  disciplines    String[]     @default([])
+  /// Definicao objetiva de "entregue" acordada com o cliente.
+  definitionOfDone String?
+  contractStart  DateTime?
+  contractFinish DateTime?
+  statusDate     DateTime?
+  /// Versao do MS Project para exportacao. Padrao: 2016.
+  mspVersion     String       @default("2016")
+  /// Falso por padrao: documento privado nao sai do perimetro sem consentimento.
+  allowExternalAi Boolean     @default(false)
+  isDemo         Boolean      @default(false)
+  version        Int          @default(1)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  members        ProjectMember[]
+  folders        Folder[]
+  documents      Document[]
+  calendars      WorkCalendarDef[]
+  resources      ResourceDef[]
+  productivity   ProductivityIndex[]
+  quantities     QuantityItem[]
+  entities       TechEntity[]
+  relations      EntityRelation[]
+  wbsNodes       WbsNode[]
+  activities     Activity[]
+  links          LogicLink[]
+  controlItems   ControlMapItem[]
+  constraints    ConstraintRecord[]
+  readiness      ReadinessAssessment[]
+  baselines      Baseline[]
+  openIssues     OpenIssue[]
+  assumptions    Assumption[]
+  conflicts      SourceConflict[]
+  decisions      Decision[]
+  jobs           ProcessingJob[]
+  auditLogs      AuditLog[]
+  exports        ExportRecord[]
+  comments       Comment[]
+}
+
+// ---------------------------------------------------------------------------
+// Arquivos e documentos
+// ---------------------------------------------------------------------------
+
+model Folder {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Caminho completo preservado do upload, ex.: /ISOMETRICOS/AREA100
+  path      String
+  parentId  String?
+  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[] @relation("FolderTree")
+  documents Document[]
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, path])
+}
+
+enum DocumentType {
+  CONTRACT
+  SPECIFICATION
+  PID
+  PFD
+  LINE_LIST
+  PIPING_ISOMETRIC
+  PIPING_PLAN
+  PLANIMETRIC
+  LOCATION_PLAN
+  MODEL_3D
+  MATERIAL_LIST
+  DATASHEET
+  EQUIPMENT_LIST
+  SUPPORT_DRAWING
+  STRUCTURAL_DRAWING
+  SINGLE_LINE_DIAGRAM
+  CABLE_ROUTING
+  CABLE_LIST
+  INSTRUMENT_LIST
+  AUTOMATION_ARCHITECTURE
+  LOOP_DIAGRAM
+  INSTALLATION_DRAWING
+  PROCEDURE
+  INSPECTION_PLAN
+  COMMISSIONING_PLAN
+  EXISTING_SCHEDULE
+  UNCLASSIFIED
+}
+
+model Document {
+  id             String       @id @default(cuid())
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folderId       String?
+  folder         Folder?      @relation(fields: [folderId], references: [id])
+  fileName       String
+  folderPath     String
+  documentNumber String?
+  discipline     String?
+  area           String?
+  system         String?
+  /// Tipo sugerido pela classificacao automatica.
+  suggestedType  DocumentType @default(UNCLASSIFIED)
+  typeConfidence Float?
+  /// Tipo confirmado por humano. Enquanto null, o tipo NAO e tratado como fato.
+  confirmedType  DocumentType?
+  confirmedBy    String?
+  confirmedAt    DateTime?
+  currentVersionId String?    @unique
+  isDemo         Boolean      @default(false)
+  version        Int          @default(1)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  versions       DocumentVersion[] @relation("DocumentVersions")
+  currentVersion DocumentVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  quantities     QuantityItem[]
+  entities       TechEntity[]
+
+  @@index([projectId, documentNumber])
+}
+
+enum ProcessingStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  BLOCKED_UNSUPPORTED
+  PARTIAL
+}
+
+model DocumentVersion {
+  id           String   @id @default(cuid())
+  documentId   String
+  document     Document @relation("DocumentVersions", fields: [documentId], references: [id], onDelete: Cascade)
+  revision     String?
+  /// SHA-256 do conteudo original. Fonte da verdade para deduplicacao.
+  sha256       String
+  byteSize     Int
+  mimeType     String
+  /// Chave no armazenamento de objetos. O original nunca e sobrescrito.
+  storageKey   String
+  uploadedBy   String
+  uploadedAt   DateTime @default(now())
+  status       ProcessingStatus @default(PENDING)
+  statusMessage String?
+  /// Markdown rastreavel gerado no processamento.
+  markdown     String?
+  markdownKey  String?
+  pageCount    Int?
+  /// Resultado bruto do worker, para auditoria.
+  extractionJson Json?
+
+  currentOf    Document? @relation("CurrentVersion")
+  pages        DocumentPage[]
+  evidences    Evidence[]
+
+  @@unique([documentId, sha256])
+  @@index([sha256])
+}
+
+enum PageKind {
+  VECTOR
+  SCANNED
+  MIXED
+  UNKNOWN
+}
+
+model DocumentPage {
+  id         String   @id @default(cuid())
+  versionId  String
+  version    DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  pageNumber Int
+  sheet      String?
+  kind       PageKind @default(UNKNOWN)
+  widthPt    Float?
+  heightPt   Float?
+  markdown   String?
+  /// Regiao onde o OCR nao pode ser aplicado por falta de provedor, entre outros avisos.
+  warnings   String[] @default([])
+
+  @@unique([versionId, pageNumber])
+}
+
+/// Localizacao exata que sustenta um valor extraido.
+model Evidence {
+  id         String   @id @default(cuid())
+  versionId  String
+  version    DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  page       Int?
+  sheet      String?
+  bbox       Float[]  @default([])
+  layer      String?
+  objectId   String?
+  snippet    String?
+  method     String
+  confidence Float?
+  createdAt  DateTime @default(now())
+
+  quantities QuantityItem[]
+  entities   TechEntity[]
+}
+
+// ---------------------------------------------------------------------------
+// Entidades tecnicas e quantitativos
+// ---------------------------------------------------------------------------
+
+enum DataClass {
+  EXTRACTED_FACT
+  USER_INPUT
+  AI_INFERENCE
+  PLANNING_ASSUMPTION
+  CONFIGURABLE_RULE
+  PENDING_INFO
+  SOURCE_CONFLICT
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  CORRECTED
+  REJECTED
+  FLAGGED
+}
+
+model TechEntity {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documentId  String?
+  document    Document? @relation(fields: [documentId], references: [id])
+  evidenceId  String?
+  evidence    Evidence? @relation(fields: [evidenceId], references: [id])
+  /// Chave natural da coisa fisica no campo.
+  entityKey   String
+  kind        String
+  discipline  String
+  area        String?
+  system      String?
+  subsystem   String?
+  attributes  Json     @default("{}")
+  dataClass   DataClass @default(EXTRACTED_FACT)
+  confidence  Float?
+  reviewStatus ReviewStatus @default(PENDING)
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  note        String?
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quantities  QuantityItem[]
+  relFrom     EntityRelation[] @relation("RelFrom")
+  relTo       EntityRelation[] @relation("RelTo")
+
+  @@unique([projectId, entityKey, documentId])
+  @@index([projectId, discipline])
+}
+
+model EntityRelation {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fromId     String
+  from       TechEntity @relation("RelFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId       String
+  to         TechEntity @relation("RelTo", fields: [toId], references: [id], onDelete: Cascade)
+  kind       String
+  sourceRefs String[] @default([])
+  confidence Float?
+  reviewStatus ReviewStatus @default(PENDING)
+  createdAt  DateTime @default(now())
+
+  @@unique([fromId, toId, kind])
+}
+
+model QuantityItem {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entityId     String?
+  entity       TechEntity? @relation(fields: [entityId], references: [id])
+  documentId   String?
+  document     Document? @relation(fields: [documentId], references: [id])
+  evidenceId   String?
+  evidence     Evidence? @relation(fields: [evidenceId], references: [id])
+  wbsNodeId    String?
+  wbsNode      WbsNode? @relation(fields: [wbsNodeId], references: [id])
+
+  entityKey    String
+  discipline   String
+  sourceKind   String
+  documentRevision String?
+  area         String?
+  system       String?
+  subsystem    String?
+  lineNumber   String?
+  tag          String?
+  material     String?
+  pipeClass    String?
+  schedule     String?
+  nominalDiameterIn Float?
+  itemType     String?
+  controlUnit  String?
+  qty          Float
+  unit         String
+  /// Memoria de calculo quando a quantidade e derivada.
+  calcMemo     Json?
+
+  dataClass    DataClass @default(EXTRACTED_FACT)
+  confidence   Float?
+  reviewStatus ReviewStatus @default(PENDING)
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  note         String?
+  version      Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([projectId, entityKey])
+  @@index([projectId, discipline, area])
+}
+
+// ---------------------------------------------------------------------------
+// Pendencias, premissas, conflitos e decisoes
+// ---------------------------------------------------------------------------
+
+enum IssueStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+model OpenIssue {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Campo ou area a que a pendencia se refere.
+  scope       String
+  description String
+  severity    String   @default("MEDIUM")
+  status      IssueStatus @default(OPEN)
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  resolution  String?
+  createdAt   DateTime @default(now())
+}
+
+model Assumption {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  statement   String
+  rationale   String?
+  source      String?
+  approvedBy  String?
+  approvedAt  DateTime?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model SourceConflict {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entityKey   String
+  description String
+  sides       Json
+  status      IssueStatus @default(OPEN)
+  /// Regra de precedencia aplicada, quando ja aprovada.
+  resolvedByRule String?
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model Decision {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stage         String
+  targetId      String
+  decision      String
+  by            String
+  justification String
+  before        Json?
+  after         Json?
+  createdAt     DateTime @default(now())
+
+  @@index([projectId, targetId])
+}
+
+// ---------------------------------------------------------------------------
+// EAP / AWP
+// ---------------------------------------------------------------------------
+
+enum WbsType {
+  PROJECT
+  PHASE
+  CWA
+  CWP
+  IWP
+  ACTIVITY
+}
+
+model WbsNode {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      WbsNode? @relation("WbsTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    WbsNode[] @relation("WbsTree")
+  type        WbsType
+  code        String
+  name        String
+  discipline  String?
+  area        String?
+  system      String?
+  subsystem   String?
+  scopeIn     String?
+  scopeOut    String?
+  deliverable String?
+  qty         Float?
+  unit        String?
+  documentIds String[] @default([])
+  acceptanceCriteria Json @default("[]")
+  sortIndex   Int      @default(0)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quantities  QuantityItem[]
+  activities  Activity[]
+  constraints ConstraintRecord[]
+  readiness   ReadinessAssessment[]
+
+  @@unique([projectId, code])
+}
+
+// ---------------------------------------------------------------------------
+// Calendario, recursos e produtividade
+// ---------------------------------------------------------------------------
+
+model WorkCalendarDef {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+  /// { "1": [{"start":"07:00","end":"12:00"}], ... } indexado por dia da semana (0=domingo)
+  workWeek  Json
+  /// [{ "date":"2026-04-21", "working":false, "name":"Tiradentes" }]
+  exceptions Json    @default("[]")
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  activities Activity[]
+
+  @@unique([projectId, code])
+}
+
+model ResourceDef {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+  kind      String   @default("WORK")
+  group     String?
+  maxUnits  Float    @default(1)
+  /// Horas PRODUTIVAS por recurso por dia. Nao e hora paga nem hora disponivel.
+  productiveHoursPerDay Float?
+  createdAt DateTime @default(now())
+
+  assignments Assignment[]
+
+  @@unique([projectId, code])
+}
+
+model ProductivityIndex {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  code       String
+  description String
+  /// HH por unidade.
+  value      Float
+  perUnit    String
+  basis      String
+  /// Fonte obrigatoria. Sem fonte o indice nao pode calcular duracao.
+  source     String
+  sourceDate DateTime
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  activities Activity[]
+
+  @@unique([projectId, code])
+}
+
+// ---------------------------------------------------------------------------
+// Cronograma
+// ---------------------------------------------------------------------------
+
+enum DurationStatus {
+  CALCULATED
+  NOT_CALCULABLE
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  wbsNodeId   String?
+  wbsNode     WbsNode? @relation(fields: [wbsNodeId], references: [id])
+  calendarId  String?
+  calendar    WorkCalendarDef? @relation(fields: [calendarId], references: [id])
+  productivityId String?
+  productivity ProductivityIndex? @relation(fields: [productivityId], references: [id])
+
+  code        String
+  name        String
+  discipline  String?
+  area        String?
+  system      String?
+  step        String?
+  deliverable String?
+  completionCriteria String?
+  isMilestone Boolean  @default(false)
+  isContractual Boolean @default(false)
+
+  qty         Float?
+  unit        String?
+  workHH      Float?
+  actualWorkHH Float?  @default(0)
+  remainingWorkHH Float?
+  dailyCapacityHH Float?
+  durationMinutes Int   @default(0)
+  durationStatus DurationStatus @default(NOT_CALCULABLE)
+  /// Lista do que falta quando NOT_CALCULABLE. Nunca preenchemos a duracao por conta.
+  missingInputs Json   @default("[]")
+  calcMemo    String[] @default([])
+
+  constraintType String?
+  constraintDate DateTime?
+  constraintJustification String?
+
+  earlyStart  DateTime?
+  earlyFinish DateTime?
+  lateStart   DateTime?
+  lateFinish  DateTime?
+  totalFloatMinutes Int?
+  freeFloatMinutes  Int?
+  isCritical  Boolean  @default(false)
+
+  actualStart DateTime?
+  actualFinish DateTime?
+  percentComplete Float @default(0)
+
+  quantityItemIds String[] @default([])
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  predecessors LogicLink[] @relation("LinkSuccessor")
+  successors   LogicLink[] @relation("LinkPredecessor")
+  assignments  Assignment[]
+  baselineRows BaselineRow[]
+  constraints  ConstraintRecord[]
+  readiness    ReadinessAssessment[]
+
+  @@unique([projectId, code])
+  @@index([projectId, area, discipline])
+}
+
+enum LinkStatus {
+  SUGGESTED
+  VALIDATED
+  REJECTED
+  MODIFIED
+}
+
+model LogicLink {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  predecessorId String
+  predecessor   Activity @relation("LinkPredecessor", fields: [predecessorId], references: [id], onDelete: Cascade)
+  successorId   String
+  successor     Activity @relation("LinkSuccessor", fields: [successorId], references: [id], onDelete: Cascade)
+  type          String   @default("FS")
+  lagMinutes    Int      @default(0)
+  status        LinkStatus @default(SUGGESTED)
+  /// Motivo fisico, contratual ou operacional. Obrigatorio.
+  reason        String
+  reasonKind    String
+  ruleId        String?
+  sourceRefs    String[] @default([])
+  confidence    Float    @default(0)
+  validatedBy   String?
+  validatedAt   DateTime?
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+
+  @@unique([predecessorId, successorId])
+  @@index([projectId, status])
+}
+
+model Assignment {
+  id         String   @id @default(cuid())
+  activityId String
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  resourceId String
+  resource   ResourceDef @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  units      Float    @default(1)
+  workHH     Float    @default(0)
+  count      Int      @default(1)
+
+  @@unique([activityId, resourceId])
+}
+
+model Baseline {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number    Int      @default(0)
+  name      String
+  /// Congelada: nunca alterada apos a criacao.
+  frozenAt  DateTime @default(now())
+  createdBy String
+  note      String?
+  rows      BaselineRow[]
+
+  @@unique([projectId, number])
+}
+
+model BaselineRow {
+  id         String   @id @default(cuid())
+  baselineId String
+  baseline   Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  activityId String
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  start      DateTime
+  finish     DateTime
+  durationMinutes Int
+  workHH     Float
+
+  @@unique([baselineId, activityId])
+}
+
+// ---------------------------------------------------------------------------
+// Mapas de controle, restricoes e prontidao
+// ---------------------------------------------------------------------------
+
+model ControlMapItem {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mapId      String
+  controlKey String
+  fields     Json     @default("{}")
+  stages     Json     @default("{}")
+  plannedHH  Float?
+  actualHH   Float?
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([projectId, mapId, controlKey])
+}
+
+model ConstraintRecord {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  wbsNodeId    String?
+  wbsNode      WbsNode? @relation(fields: [wbsNodeId], references: [id])
+  activityId   String?
+  activity     Activity? @relation(fields: [activityId], references: [id])
+  description  String
+  category     String
+  owner        String
+  neededBy     DateTime
+  promisedBy   DateTime?
+  status       String   @default("OPEN")
+  removalEvidence String?
+  potentialImpact String
+  origin       String
+  version      Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model ReadinessAssessment {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  wbsNodeId  String?
+  wbsNode    WbsNode? @relation(fields: [wbsNodeId], references: [id])
+  activityId String?
+  activity   Activity? @relation(fields: [activityId], references: [id])
+  dimension  String
+  verdict    String   @default("NOT_ASSESSED")
+  assessedBy String?
+  assessedAt DateTime?
+  note       String?
+
+  @@unique([wbsNodeId, activityId, dimension])
+}
+
+// ---------------------------------------------------------------------------
+// Fila de processamento, auditoria, exportacoes e comentarios
+// ---------------------------------------------------------------------------
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+/// Fila em tabela, consumida por Node e por Python com FOR UPDATE SKIP LOCKED.
+model ProcessingJob {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind        String
+  payload     Json
+  status      JobStatus @default(QUEUED)
+  priority    Int      @default(100)
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(3)
+  progress    Int      @default(0)
+  progressNote String?
+  lastError   String?
+  lockedBy    String?
+  lockedAt    DateTime?
+  runAfter    DateTime @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([status, runAfter, priority])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  justification String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([entity, entityId])
+}
+
+model ExportRecord {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  format    String
+  storageKey String
+  byteSize  Int
+  /// Relatorio de validacao gerado junto com o arquivo.
+  validation Json
+  createdBy String
+  createdAt DateTime @default(now())
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  entity    String
+  entityId  String
+  body      String
+  mentions  String[] @default([])
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([projectId, entity, entityId])
+}
