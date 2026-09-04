@@ -165,9 +165,10 @@ export function parseNominalDiameterInches(label: string | null | undefined): nu
     const n = Number(bare[1]);
     // Ambiguidade real: "150" pode ser DN150 (6") ou 150". Resolvemos pela tabela
     // apenas quando o numero nao e um diametro plausivel em polegadas.
-    if (DN_TABLE[bare[1]] !== undefined && n > 48) return DN_TABLE[bare[1]];
+    const fromTable = DN_TABLE[bare[1]];
+    if (fromTable !== undefined && n > 48) return fromTable;
     if (n <= 48) return n;
-    return DN_TABLE[bare[1]] ?? null;
+    return fromTable ?? null;
   }
   return null;
 }

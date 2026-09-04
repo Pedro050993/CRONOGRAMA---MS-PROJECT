@@ -125,8 +125,11 @@ export function computeCpm(activities: NetworkActivity[], links: Link[], opts: C
       if (candidate.getTime() > start.getTime()) start = candidate;
     }
 
-    if (a.actualStart) start = new Date(a.actualStart);
+    // Normaliza para o proximo instante util: uma predecessora que termina as 16:00
+    // nao faz a sucessora comecar as 16:00 — ela comeca no proximo turno.
+    start = nextWorkingInstant(cal, start);
     start = applyStartConstraint(cal, a, start);
+    if (a.actualStart) start = new Date(a.actualStart);
 
     es.set(id, start);
     ef.set(id, a.actualFinish ? new Date(a.actualFinish) : addWorkingMinutes(cal, start, a.durationMinutes));
