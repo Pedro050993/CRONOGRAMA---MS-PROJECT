@@ -1,0 +1,24 @@
+{
+  "name": "cronograma-ms-project",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Plataforma colaborativa de interpretacao de documentos de engenharia e geracao de cronograma exportavel para MS Project",
+  "workspaces": ["packages/core", "packages/api", "packages/web"],
+  "engines": { "node": ">=20.11" },
+  "scripts": {
+    "build": "npm run build -w @cronograma/core && npm run build -w @cronograma/api && npm run build -w @cronograma/web",
+    "test": "npm run test -w @cronograma/core && npm run test -w @cronograma/api",
+    "test:core": "npm run test -w @cronograma/core",
+    "test:api": "npm run test -w @cronograma/api",
+    "test:e2e": "playwright test",
+    "dev": "npm-run-all -p dev:api dev:web",
+    "dev:api": "npm run dev -w @cronograma/api",
+    "dev:web": "npm run dev -w @cronograma/web",
+    "typecheck": "tsc -b packages/core packages/api"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

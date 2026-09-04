@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+coverage/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+storage-data/
+playwright-report/
+test-results/
+packages/api/prisma/dev.db
+.DS_Store
