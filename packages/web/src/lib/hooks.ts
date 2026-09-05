@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ApiError, getToken } from './api';
+import { api, ApiError, API_BASE, getToken } from './api';
 
 export interface AsyncState<T> {
   data: T | null;
@@ -55,7 +55,7 @@ export function useProjectEvents(projectId: string | undefined, onEvent: (e: Pro
     const token = getToken();
     if (!token) return;
 
-    const source = new EventSource(`/api/projects/${projectId}/events?token=${encodeURIComponent(token)}`);
+    const source = new EventSource(`${API_BASE}/api/projects/${projectId}/events?token=${encodeURIComponent(token)}`);
     const kinds = [
       'connected', 'document.uploaded', 'document.processing', 'document.processed', 'document.failed',
       'entity.updated', 'quantity.approved', 'quantity.updated', 'wbs.changed', 'link.updated',

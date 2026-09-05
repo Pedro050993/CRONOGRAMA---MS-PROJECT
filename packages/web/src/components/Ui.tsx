@@ -66,12 +66,17 @@ export function AsyncBoundary({ loading, error, empty, emptyTitle, emptyHint, ch
   return <>{children}</>;
 }
 
+/**
+ * O controle fica DENTRO do <label>, o que associa os dois sem depender de id.
+ * Rotulo solto ao lado do campo e invisivel para leitor de tela e para teste
+ * automatizado — os dois estavam quebrados aqui antes desta correcao.
+ */
 export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }): JSX.Element {
   return (
-    <div className="field">
-      <label>{label}</label>
+    <label className="field">
+      <span className="field__label">{label}</span>
       {children}
       {hint && <small>{hint}</small>}
-    </div>
+    </label>
   );
 }

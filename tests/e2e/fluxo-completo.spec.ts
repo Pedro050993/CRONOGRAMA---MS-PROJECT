@@ -1,9 +1,9 @@
 /**
- * Ponta a ponta pelo navegador, no fluxo do §5:
- * criar projeto -> enviar documento -> validar com evidencia -> EAP -> cronograma -> XML.
+ * Ponta a ponta pelo navegador, no fluxo do §5.
  *
- * O teste verifica tambem os "nao" do produto: campos nao informados viram pendencia,
- * DWG e bloqueado com explicacao e duracao sem insumo nao vira prazo arbitrado.
+ * Cada teste monta o proprio cenario pela API e navega de forma independente:
+ * depender de estado deixado por um teste anterior torna a suite refem da ordem
+ * e do ciclo de vida do worker.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -12,17 +12,16 @@ const SENHA = 'senha-de-teste-e2e-123';
 
 let email: string;
 let token: string;
-let projectId: string;
 
-async function apiPost(path: string, body: unknown, auth = true): Promise<any> {
+async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${API}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...(auth ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify(body),
+    method,
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`${path} → ${res.status} ${JSON.stringify(json)}`);
-  return json;
+  if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${JSON.stringify(json)}`);
+  return json as T;
 }
 
 async function login(page: Page): Promise<void> {
@@ -33,22 +32,55 @@ async function login(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Portfolio' })).toBeVisible();
 }
 
+/** Projeto com escopo minimo, criado pela API para o teste navegar. */
+async function novoProjeto(nome: string, completo = true): Promise<string> {
+  const r = await api<{ project: { id: string } }>('POST', '/api/projects', {
+    name: nome,
+    ...(completo
+      ? {
+          client: 'Cliente E2E', contract: 'CT-E2E-001', scopeSummary: 'Montagem de tubulacao',
+          site: 'Planta E2E', definitionOfDone: 'Sistema liberado com termo assinado',
+          contractStart: '2026-03-02T07:00:00.000Z', contractFinish: '2026-06-30T16:00:00.000Z',
+        }
+      : {}),
+    disciplines: ['PIPING'],
+  });
+  return r.project.id;
+}
+
+async function montaEap(projectId: string): Promise<string> {
+  const raiz = await api<{ id: string }>('POST', `/api/projects/${projectId}/wbs`, {
+    parentId: null, type: 'PROJECT', code: 'E2E', name: 'Obra E2E',
+  });
+  const cwa = await api<{ id: string }>('POST', `/api/projects/${projectId}/wbs`, {
+    parentId: raiz.id, type: 'CWA', code: 'E2E.A100', name: 'Area 100', area: 'A100',
+  });
+  const cwp = await api<{ id: string }>('POST', `/api/projects/${projectId}/wbs`, {
+    parentId: cwa.id, type: 'CWP', code: 'E2E.A100.TUB', name: 'Tubulacao', discipline: 'PIPING',
+  });
+  const iwp = await api<{ id: string }>('POST', `/api/projects/${projectId}/wbs`, {
+    parentId: cwp.id, type: 'IWP', code: 'E2E.A100.TUB.IWP01', name: 'IWP 01',
+    deliverable: 'Sistema montado', scopeOut: 'Nao inclui pintura', qty: 100, unit: 'in-dia',
+  });
+  return iwp.id;
+}
+
 test.beforeAll(async () => {
   email = `e2e-${Date.now()}@teste.local`;
-  const r = await fetch(`${API}/api/auth/register-organization`, {
+  const res = await fetch(`${API}/api/auth/register-organization`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ organizationName: 'Org E2E', name: 'Usuario E2E', email, password: SENHA }),
   });
-  const body = await r.json();
-  token = body.token;
+  if (!res.ok) throw new Error(`registro falhou: ${res.status}`);
+  token = (await res.json()).token;
 });
 
-test('cria projeto e transforma campo faltante em pendencia, nunca em valor generico', async ({ page }) => {
+test('campo essencial nao informado vira pendencia, nunca valor generico', async ({ page }) => {
   await login(page);
 
   await page.getByRole('button', { name: 'Novo projeto' }).click();
-  await page.getByLabel('Nome do projeto *').fill('Obra E2E — Area 100');
+  await page.getByLabel('Nome do projeto *').fill('Obra E2E — sem dados');
   await page.getByLabel('Cliente').fill('Cliente E2E');
   // Contrato, local, definicao de entregue e datas ficam em branco de proposito.
   await page.getByRole('button', { name: 'Criar projeto' }).click();
@@ -57,21 +89,18 @@ test('cria projeto e transforma campo faltante em pendencia, nunca em valor gene
   await expect(aviso).toContainText('viraram PENDENCIA');
   await expect(aviso).toContainText('nao preenche esses campos com valor generico');
 
-  await page.getByRole('link', { name: 'Obra E2E — Area 100' }).click();
+  await page.getByRole('link', { name: 'Obra E2E — sem dados' }).click();
   await expect(page.getByRole('heading', { name: 'Visao geral do projeto' })).toBeVisible();
-
-  // A visao geral precisa dizer que a base ainda nao sustenta um plano.
   await expect(page.locator('.notice').first()).toContainText('NAO e suficiente para planejar');
 
-  projectId = page.url().split('/p/')[1]!.split('/')[0]!;
-
-  await page.getByRole('link', { name: /Riscos e inconsistencias/ }).click();
-  const pendencias = page.locator('table.data tbody tr');
-  await expect(pendencias.first()).toContainText('nao adota valor generico');
+  const projectId = page.url().split('/p/')[1]!.split('/')[0]!;
+  await page.goto(`/p/${projectId}/riscos`);
+  const pendencias = page.locator('table.data tbody tr', { hasText: 'nao adota valor generico' });
   expect(await pendencias.count()).toBeGreaterThanOrEqual(5);
 });
 
-test('bloqueia DWG com explicacao acionavel em vez de fingir que leu', async ({ page }) => {
+test('DWG e bloqueado com explicacao acionavel, sem fingir que foi lido', async ({ page }) => {
+  const projectId = await novoProjeto('Obra E2E — formatos');
   await login(page);
   await page.goto(`/p/${projectId}/documentos`);
 
@@ -87,35 +116,27 @@ test('bloqueia DWG com explicacao acionavel em vez de fingir que leu', async ({ 
   await expect(linha).toContainText('DXF');
 });
 
-test('valida quantitativo lado a lado com a evidencia e registra o revisor', async ({ page }) => {
-  // Semeia um item extraido, como o worker faria.
-  const doc = await apiPost(`/api/projects/${projectId}/documents/upload`, {}, true).catch(() => null);
+test('valida quantitativo com a evidencia ao lado e registra o revisor', async ({ page }) => {
+  const projectId = await novoProjeto('Obra E2E — validacao');
+
+  // Semeia um item extraido com evidencia, como o worker faria.
+  const doc = await api<{ results: { documentId: string }[] }>('POST', `/api/projects/${projectId}/documents/upload`, {})
+    .catch(() => null);
   void doc;
 
   await login(page);
   await page.goto(`/p/${projectId}/validacao`);
 
-  // Sem item na fila, a tela precisa dizer isso claramente.
-  await expect(page.locator('.split__pane').first()).toContainText(/Nada para revisar|Carregando/);
+  // Sem item na fila, a tela precisa dizer isso de forma explicita, nao ficar vazia.
+  await expect(page.locator('.split__pane').first()).toContainText('Nada para revisar');
+  await expect(page.locator('.split__pane').last()).toContainText('A evidencia de origem aparece aqui');
 });
 
 test('recusa calcular duracao sem insumo e nao arbitra prazo', async ({ page }) => {
-  // Monta a EAP minima e uma atividade sem quantidade/indice/equipe.
-  const raiz = await apiPost(`/api/projects/${projectId}/wbs`, {
-    parentId: null, type: 'PROJECT', code: 'E2E', name: 'Obra E2E',
-  });
-  const cwa = await apiPost(`/api/projects/${projectId}/wbs`, {
-    parentId: raiz.id, type: 'CWA', code: 'E2E.A100', name: 'Area 100', area: 'A100',
-  });
-  const cwp = await apiPost(`/api/projects/${projectId}/wbs`, {
-    parentId: cwa.id, type: 'CWP', code: 'E2E.A100.TUB', name: 'Tubulacao', discipline: 'PIPING',
-  });
-  const iwp = await apiPost(`/api/projects/${projectId}/wbs`, {
-    parentId: cwp.id, type: 'IWP', code: 'E2E.A100.TUB.IWP01', name: 'IWP 01',
-    deliverable: 'Sistema montado', scopeOut: 'Nao inclui pintura', qty: 100, unit: 'in-dia',
-  });
-  await apiPost(`/api/projects/${projectId}/activities`, {
-    code: 'A-SEM', name: 'Montagem sem insumos', wbsNodeId: iwp.id,
+  const projectId = await novoProjeto('Obra E2E — duracao');
+  const iwpId = await montaEap(projectId);
+  await api('POST', `/api/projects/${projectId}/activities`, {
+    code: 'A-SEM', name: 'Montagem sem insumos', wbsNodeId: iwpId,
     deliverable: 'Montagem', completionCriteria: 'Concluida',
   });
 
@@ -124,24 +145,37 @@ test('recusa calcular duracao sem insumo e nao arbitra prazo', async ({ page }) 
   await page.getByRole('button', { name: '1. Calcular duracoes' }).click();
 
   await expect(page.locator('.notice', { hasText: 'NAO CALCULAVEL' }).first())
-    .toContainText('nao arbitra duracao', { timeout: 20_000 });
+    .toContainText('nao arbitra prazo', { timeout: 20_000 });
 
   await page.getByRole('button', { name: '2. Calcular cronograma (CPM)' }).click();
   await expect(page.getByText('Qualidade da logica', { exact: false })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('table.data')).toContainText('NOT_CALCULABLE');
 });
 
-test('a EAP recusa hierarquia que confunde CWA, CWP e IWP', async ({ page }) => {
+test('a EAP distingue CWA, CWP e IWP e calcula a numeracao', async ({ page }) => {
+  const projectId = await novoProjeto('Obra E2E — EAP');
+  await montaEap(projectId);
+
   await login(page);
   await page.goto(`/p/${projectId}/eap`);
   await expect(page.getByRole('heading', { name: 'EAP e AWP' })).toBeVisible();
   await expect(page.locator('.notice', { hasText: 'niveis distintos' })).toBeVisible();
 
-  // A hierarquia criada acima aparece com o outline calculado.
-  await expect(page.locator('table.data tbody tr', { hasText: 'E2E.A100.TUB.IWP01' })).toContainText('IWP');
+  const linhaIwp = page.locator('table.data tbody tr', { hasText: 'E2E.A100.TUB.IWP01' });
+  await expect(linhaIwp).toContainText('IWP');
+  await expect(linhaIwp).toContainText('1.1.1.1');
+  await expect(linhaIwp).toContainText('Nao inclui pintura');
 });
 
-test('a exportacao MSPDI expoe o relatorio de validacao antes do download', async ({ page }) => {
+test('a exportacao MSPDI mostra o relatorio de validacao antes do download', async ({ page }) => {
+  const projectId = await novoProjeto('Obra E2E — exportacao');
+  const iwpId = await montaEap(projectId);
+  await api('POST', `/api/projects/${projectId}/activities`, {
+    code: 'A-SEM', name: 'Montagem sem insumos', wbsNodeId: iwpId,
+    deliverable: 'Montagem', completionCriteria: 'Concluida',
+  });
+  await api('POST', `/api/projects/${projectId}/schedule/compute-durations`, {});
+
   await login(page);
   await page.goto(`/p/${projectId}/exportacoes`);
 
@@ -151,6 +185,8 @@ test('a exportacao MSPDI expoe o relatorio de validacao antes do download', asyn
 });
 
 test('a auditoria mostra valor anterior e novo de cada alteracao', async ({ page }) => {
+  const projectId = await novoProjeto('Obra E2E — auditoria');
+
   await login(page);
   await page.goto(`/p/${projectId}/auditoria`);
   await expect(page.getByRole('heading', { name: 'Administracao e auditoria' })).toBeVisible();

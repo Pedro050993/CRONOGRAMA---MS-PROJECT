@@ -15,3 +15,4 @@ test-results/
 packages/api/prisma/dev.db
 .DS_Store
 packages/api/prisma/migrations/**/migration_lock.toml.bak
+.e2e-storage/

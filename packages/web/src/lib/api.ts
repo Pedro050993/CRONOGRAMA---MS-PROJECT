@@ -6,6 +6,17 @@
  */
 const TOKEN_KEY = 'cronograma.token';
 
+/**
+ * Base da API. Vazio (padrao) significa mesma origem: em producao o nginx serve o
+ * frontend e encaminha /api. Defina VITE_API_BASE no build quando a API estiver em
+ * outro host — nao ha segredo aqui, apenas o endereco.
+ */
+export const API_BASE: string = (import.meta.env['VITE_API_BASE'] as string | undefined) ?? '';
+
+function apiUrl(path: string): string {
+  return path.startsWith('/api') ? `${API_BASE}${path}` : path;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -35,7 +46,7 @@ async function request<T>(method: string, path: string, body?: unknown, isForm =
   if (token) headers['authorization'] = `Bearer ${token}`;
   if (body !== undefined && !isForm) headers['content-type'] = 'application/json';
 
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method,
     headers,
     body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
@@ -67,7 +78,7 @@ export const api = {
   upload: <T>(path: string, form: FormData) => request<T>('POST', path, form, true),
   download: async (path: string, fileName: string): Promise<void> => {
     const token = getToken();
-    const res = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+    const res = await fetch(apiUrl(path), { headers: token ? { authorization: `Bearer ${token}` } : {} });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({ message: `Falha ao exportar (${res.status}).` }));
       throw new ApiError(res.status, payload.message ?? 'Falha ao exportar.', payload.error, payload);
