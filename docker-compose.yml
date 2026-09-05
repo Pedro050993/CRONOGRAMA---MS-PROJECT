@@ -1,0 +1,141 @@
+# Ambiente completo da Fase 1.
+#   docker compose up --build
+#
+# Antes de subir: copie .env.example para .env e preencha JWT_SECRET.
+# Nenhum servico aqui tem senha padrao de producao.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cronograma}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}"
+      POSTGRES_DB: ${POSTGRES_DB:-cronograma}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cronograma}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${S3_ACCESS_KEY_ID:?defina S3_ACCESS_KEY_ID no .env}"
+      MINIO_ROOT_PASSWORD: "${S3_SECRET_ACCESS_KEY:?defina S3_SECRET_ACCESS_KEY no .env}"
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$S3_ACCESS_KEY_ID $$S3_SECRET_ACCESS_KEY &&
+      mc mb --ignore-existing local/$$S3_BUCKET &&
+      mc anonymous set none local/$$S3_BUCKET
+      "
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_BUCKET: ${S3_BUCKET:-cronograma}
+
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cronograma}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cronograma}?schema=public
+    command: ["npx", "prisma", "migrate", "deploy", "--schema", "packages/api/prisma/schema.prisma"]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cronograma}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cronograma}?schema=public
+      API_PORT: 3001
+      API_HOST: 0.0.0.0
+      JWT_SECRET: "${JWT_SECRET:?defina JWT_SECRET no .env (gere com openssl rand -base64 48)}"
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-s3}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-cronograma}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: "true"
+      SIGNED_URL_TTL_SECONDS: ${SIGNED_URL_TTL_SECONDS:-300}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-209715200}
+      OCR_PROVIDER: ${OCR_PROVIDER:-none}
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      CAD_CONVERTER: ${CAD_CONVERTER:-none}
+      MODEL_DERIVER: ${MODEL_DERIVER:-none}
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  docproc:
+    build:
+      context: .
+      dockerfile: infra/docproc.Dockerfile
+      args:
+        WITH_OCR: ${WITH_OCR:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cronograma}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cronograma}?schema=public
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-s3}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-cronograma}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-2}
+      OCR_PROVIDER: ${OCR_PROVIDER:-none}
+      OCR_LANGUAGES: ${OCR_LANGUAGES:-por+eng}
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+    # Escala horizontal: cada worker reivindica jobs distintos via SKIP LOCKED.
+    deploy:
+      replicas: ${DOCPROC_REPLICAS:-1}
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/web.Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  minio-data:
