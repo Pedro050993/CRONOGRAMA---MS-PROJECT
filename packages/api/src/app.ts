@@ -23,6 +23,9 @@ declare module 'fastify' {
 /** Rotas que dispensam autenticacao. Tudo o mais exige token valido. */
 const PUBLIC = new Set(['/api/health', '/api/auth/login', '/api/auth/register-organization']);
 
+/** Unica rota que aceita o token via query, pela limitacao do EventSource. */
+const SSE_PATH = /^\/api\/projects\/[^/]+\/events$/;
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -39,11 +42,22 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   app.addHook('onRequest', async (req) => {
-    if (PUBLIC.has(req.url.split('?')[0] ?? '')) return;
+    const path = req.url.split('?')[0] ?? '';
+    if (PUBLIC.has(path)) return;
+
     const header = req.headers.authorization;
-    if (!header?.startsWith('Bearer ')) throw unauthorized();
+    let raw: string | undefined;
+    if (header?.startsWith('Bearer ')) {
+      raw = header.slice(7);
+    } else if (SSE_PATH.test(path)) {
+      // EventSource nao permite cabecalho de autorizacao. Aceitamos o token na query
+      // APENAS nesta rota, que e somente-leitura; o token continua sendo validado igual.
+      raw = (req.query as Record<string, string | undefined>)['token'];
+    }
+    if (!raw) throw unauthorized();
+
     try {
-      const payload = verifyToken(header.slice(7));
+      const payload = verifyToken(raw);
       req.user = { id: payload.sub, organizationId: payload.org, email: payload.email };
     } catch (e) {
       throw unauthorized(e instanceof Error ? e.message : 'Token invalido.');
