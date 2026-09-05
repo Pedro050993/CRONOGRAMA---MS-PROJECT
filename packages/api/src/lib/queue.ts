@@ -6,7 +6,12 @@
  */
 import { prisma } from '../db.js';
 
-export type JobKind = 'document.process' | 'document.reprocess' | 'revision.impact' | 'schedule.recompute';
+export type JobKind =
+  | 'document.process'
+  | 'document.reprocess'
+  | 'revision.impact'
+  | 'schedule.recompute'
+  | 'productivity.import';
 
 export interface EnqueueInput {
   projectId: string;

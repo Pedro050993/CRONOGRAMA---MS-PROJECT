@@ -20,11 +20,11 @@ Cada limitação está declarada **no próprio produto**, não só nesta página
 |---|---|---|
 | PDF vetorial, PNG/JPG/TIFF | suportado | — |
 | PDF digitalizado | suportado **se** houver OCR configurado | `OCR_PROVIDER` |
-| DXF | bloqueado com mensagem e alternativas | Fase 2 |
-| DWG | bloqueado — formato proprietário, exige ODA/APS licenciado | Fase 2 + decisão D4 |
-| NWD / NWC | bloqueado — proprietário, exige Autodesk APS | Fase 3 + decisão D5 |
-| IFC | bloqueado | Fase 3 |
-| XLSX/CSV | armazenado; extração estruturada é Fase 2 | Fase 2 |
+| DXF | bloqueado hoje; parser próprio é o escopo da Fase 2 | Fase 2 |
+| DWG | **fora de escopo** — sem orçamento de licença (D4). Exigir DXF na entrega | — |
+| NWD / NWC | **fora de escopo** — sem orçamento de licença (D5) e sem leitor aberto. Exigir IFC ou CSV de propriedades | — |
+| IFC | bloqueado; entra na Fase 3 | Fase 3 |
+| XLSX/CSV | **lidos** na importação da base de produtividade; extração de outros conteúdos é Fase 2 | parcial |
 
 O arquivo bloqueado **é armazenado íntegro e versionado**. Nada é perdido; apenas não
 é interpretado, e isso é dito na tela.
@@ -74,13 +74,28 @@ O arquivo bloqueado **é armazenado íntegro e versionado**. Nada é perdido; ap
 - Sem SSO/OIDC. Autenticação é e-mail + senha. Fase 4.
 - Sem *rate limiting* nas rotas de autenticação. Recomendado colocar no proxy.
 
-## 7. Dados de demonstração
+## 7. Base de produtividade importada
+
+- **Fórmula em XLSX sem valor em cache vira célula vazia** e a linha é recusada com
+  motivo. O leitor usa o valor calculado que o Excel grava (`<v>`), nunca o texto da
+  fórmula. Salvar a planilha pelo Excel resolve; gerada por script sem cache, não.
+- **Tabela em PDF é lida por agrupamento de coordenadas**, não por estrutura de célula
+  — PDF não tem célula. A confiança do índice lido de PDF é limitada a 0,60 por isso.
+  Linha que não agrupar com segurança é recusada, nunca adivinhada.
+- **PDF digitalizado** (base escaneada) depende de OCR configurado. Sem ele, nada é lido.
+- O leitor de XLSX ignora estilo, formatação condicional, células mescladas e filtro.
+  Célula mesclada aparece apenas na primeira posição, o que pode desalinhar uma tabela
+  que dependa de mesclagem para se estruturar.
+- **Não há detecção de unidade por contexto.** Uma coluna "Índice" sem coluna de unidade
+  derruba o arquivo inteiro, mesmo que "todo mundo saiba" que é HH/m.
+
+## 8. Dados de demonstração
 
 Os índices de produtividade do `seed` são **fictícios**, com fonte declarada como
 "PREMISSA DE DEMONSTRAÇÃO". O projeto recebe `[DEMONSTRACAO]` no nome, os documentos
 recebem `[TESTE]` e a interface exibe faixa fixa no topo. Não use em obra real.
 
-## 8. O que este sistema deliberadamente não faz
+## 9. O que este sistema deliberadamente não faz
 
 - Não completa quantitativo "típico" quando a lista de materiais não foi lida.
 - Não infere conexão entre linhas por proximidade no desenho.
@@ -89,3 +104,5 @@ recebem `[TESTE]` e a interface exibe faixa fixa no topo. Não use em obra real.
 - Não arbitra duração quando falta quantidade, índice, equipe ou calendário.
 - Não escolhe fonte vencedora numa divergência sem regra aprovada.
 - Não altera realizado nem linha de base em silêncio.
+- Não usa índice de produtividade lido de arquivo antes de alguém conferi-lo.
+- Não adivinha a base do índice (orçado × observado) nem a data da fonte.

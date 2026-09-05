@@ -42,19 +42,30 @@ Prioridade: **P0** = critério de aceite da fase; **P1** = necessário para uso 
 | F1-34 | Curva S física ponderada por HH | P1 | ✅ |
 | F1-35 | Nivelamento de recursos | P2 | ⛔ Fase 4 |
 
-## Fase 2 — CAD 2D
+## Fase 2 — CAD 2D  *(recortada em 05/09/2026: sem orçamento de licença — D4)*
 
-DXF nativo (parser próprio: layers, blocos, textos, cotas, coordenadas) → P0.
-DWG via ODA File Converter em container isolado → P0.
-Visualizador 2D (SVG derivado) → P1. Reconciliação CAD × PDF → P1.
-Extração de atributos de bloco para tag/linha/suporte → P0.
+O conversor licenciado saiu do escopo. O que resta é viável a custo zero de licença:
 
-## Fase 3 — Modelo 3D / Navisworks
+| Item | Prio | Observação |
+|---|---|---|
+| Parser DXF próprio: layers, blocos, atributos, textos, cotas, coordenadas, XREFs | P0 | DXF é formato aberto e documentado; nenhuma licença envolvida |
+| Extração de atributos de bloco → tag, linha, suporte | P0 | é daqui que sai a entidade técnica |
+| Visualizador 2D por SVG derivado do DXF | P1 | render próprio, sem viewer comercial |
+| Reconciliação CAD × PDF | P1 | mesma máquina de divergências já usada em lista × isométrico |
+| **DWG** | — | **fora de escopo.** Exigir DXF na entrega documental. LibreDWG (GPL-3) fica registrado como opção de risco, não como plano |
 
-Integração Autodesk APS (Model Derivative) → P0. Árvore e propriedades → P0.
-Visualizador 3D (APS Viewer) → P1. Bounding box e relação espacial → P0.
-Quantitativo de modelo com anti-dupla-contagem por elemento agregado → P0.
-Apoio ao sequenciamento por geometria (acesso, fechamento de espaço) → P1.
+## Fase 3 — Modelo 3D  *(recortada em 05/09/2026: sem orçamento de licença — D5)*
+
+Sem APS, não há leitura de NWD. A fase passa a depender de formato aberto:
+
+| Item | Prio | Observação |
+|---|---|---|
+| Importação de IFC (parser próprio ou biblioteca aberta) | P0 | árvore, propriedades, coordenadas |
+| Importação de CSV de propriedades exportado do Navisworks | P0 | caminho mais barato e imediato: o emissor exporta, nós lemos |
+| Importação de relatório de clash (XML/HTML do Navisworks) | P0 | alimenta a regra `SEQ.ACCESS_BLOCKING`, hoje sem fonte de interferência |
+| Quantitativo de modelo com anti-dupla-contagem por elemento agregado | P0 | a verificação por `entityKey` já existe; falta marcar o nível de agregação |
+| Visualizador 3D | P2 | sem viewer comercial, é trabalho grande para benefício menor que o resto |
+| **NWD/NWC** | — | **fora de escopo.** Não existe leitor aberto |
 
 ## Fase 4 — Expansão
 

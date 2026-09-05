@@ -20,6 +20,11 @@ export interface ProductivityIndex {
   sourceDate: string;
   /** Orcada | planejada | observada | projetada (§ produtividade). */
   basis: 'BUDGETED' | 'PLANNED' | 'OBSERVED' | 'FORECAST';
+  /**
+   * Indice lido de um arquivo e EXTRACAO, nao digitacao: precisa de confirmacao
+   * humana antes de calcular prazo (§4.2). Ausente = digitado direto, ja confiavel.
+   */
+  approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
 }
 
 export interface CrewMember {
@@ -87,6 +92,14 @@ export function computeDuration(input: DurationInputs): DurationResult {
     missing.push({ field: 'productivity', reason: 'Indice de produtividade ausente ou nao positivo.' });
   } else if (!p.source?.trim()) {
     missing.push({ field: 'productivity', reason: 'Indice informado sem fonte. §13.2 exige fonte e data.' });
+  } else if (p.approvalStatus === 'PENDING') {
+    missing.push({
+      field: 'productivity',
+      reason: `Indice "${p.source}" foi importado de arquivo e ainda nao foi confirmado por um revisor. ` +
+              'Leitura de planilha e extracao, nao digitacao: ela nao calcula prazo antes de ser conferida.',
+    });
+  } else if (p.approvalStatus === 'REJECTED') {
+    missing.push({ field: 'productivity', reason: `Indice "${p.source}" foi rejeitado na revisao e nao pode calcular duracao.` });
   }
   const crew = input.crew ?? [];
   if (crew.length === 0) {

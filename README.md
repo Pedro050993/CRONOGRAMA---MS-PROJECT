@@ -27,6 +27,8 @@ Estas não são recomendações: são regras impostas por código e cobertas por
 | XML que não passa na validação → não é entregue | `api/routes/exports.ts` |
 | DWG/NWD → bloqueio explícito com alternativas, sem fingir leitura | `core/formats` |
 | Página sem OCR disponível → pendência visível, nunca página vazia | `docproc/pdf/extract.py` |
+| Índice de produtividade lido de arquivo → pendente até alguém conferir contra a fonte | `core/schedule/duration.ts` |
+| Unidade fora do registro numa base importada → linha recusada com motivo, sem "unidade parecida" | `core/productivity/import.ts` |
 
 ## Arquitetura
 
@@ -59,12 +61,12 @@ EAP/AWP, mapas de controle, sequenciamento, cronograma e XML MSPDI.
 
 | Suíte | Casos | Como roda |
 |---|---|---|
-| Domínio (`@cronograma/core`) | 142 | puro, sem infraestrutura |
-| API | 60 | integração contra PostgreSQL real |
-| Worker (`docproc`) | 32 | 24 unidade + 8 integração com banco e fila |
+| Domínio (`@cronograma/core`) | 163 | puro, sem infraestrutura |
+| API | 76 | integração contra PostgreSQL real |
+| Worker (`docproc`) | 37 | unidade + integração com banco e fila |
 | Navegador (Playwright) | 7 | API e frontend reais |
 
-Fases 2 (DWG/DXF), 3 (NWD/IFC) e 4 (demais disciplinas, LPS, portfólio) estão
+Fases 2 (DXF), 3 (IFC) e 4 (demais disciplinas, LPS, portfólio) estão
 especificadas em [`docs/03-backlog-fases.md`](docs/03-backlog-fases.md) e **declaradas
 como não implementadas dentro do próprio produto**.
 
@@ -84,6 +86,7 @@ como não implementadas dentro do próprio produto**.
 | 09 | [Implantação e segurança](docs/09-implantacao.md) |
 | 10 | [**Limitações conhecidas**](docs/10-limitacoes-conhecidas.md) |
 | 11 | [Conectando OCR, IA e CAD/BIM](docs/11-integracao-ocr-ia-cad.md) |
+| 12 | [Base de produtividade: importação e conferência](docs/12-base-de-produtividade.md) |
 
 ## Estrutura
 
@@ -93,7 +96,7 @@ packages/api/      Fastify, Prisma, RBAC, auditoria, SSE, MSPDI
 packages/web/      React, 15 telas, Gantt e grafo em SVG próprio
 services/docproc/  worker Python: extração, OCR, classificação, entidades
 infra/             Dockerfiles e nginx
-docs/              os 12 documentos acima
+docs/              os 13 documentos acima
 tests/e2e/         Playwright
 ```
 

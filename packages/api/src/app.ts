@@ -11,6 +11,7 @@ import { registerDocumentRoutes } from './routes/documents.js';
 import { registerValidationRoutes } from './routes/validation.js';
 import { registerScopeRoutes } from './routes/scope.js';
 import { registerPlanningRoutes } from './routes/planning.js';
+import { registerProductivityRoutes } from './routes/productivity.js';
 import { registerExportRoutes } from './routes/exports.js';
 import { registerAuditRoutes } from './routes/audit.js';
 
@@ -90,6 +91,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerValidationRoutes(app);
   await registerScopeRoutes(app);
   await registerPlanningRoutes(app);
+  await registerProductivityRoutes(app);
   await registerExportRoutes(app);
   await registerAuditRoutes(app);
 

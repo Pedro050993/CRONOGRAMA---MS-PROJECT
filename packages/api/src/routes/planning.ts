@@ -265,6 +265,8 @@ export async function registerPlanningRoutes(app: FastifyInstance): Promise<void
               value: a.productivity.value, perUnit: a.productivity.perUnit,
               source: a.productivity.source, sourceDate: a.productivity.sourceDate.toISOString().slice(0, 10),
               basis: a.productivity.basis as never,
+              // Indice importado e nao conferido bloqueia a duracao no proprio motor.
+              approvalStatus: a.productivity.approvalStatus,
             }
           : null,
         crew: crew.length > 0 ? crew : null,

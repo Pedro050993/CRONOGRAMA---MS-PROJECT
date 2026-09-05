@@ -17,11 +17,11 @@ from typing import Any
 from .adapters.ocr import build_ocr
 from .config import Config
 from .db import connect, new_id
-from .handlers import document_process, revision_impact
+from .handlers import document_process, productivity_import, revision_impact
 from .queue import claim, complete, fail, progress
 from .storage import build_storage
 
-HANDLED_KINDS = ["document.process", "document.reprocess", "revision.impact"]
+HANDLED_KINDS = ["document.process", "document.reprocess", "revision.impact", "productivity.import"]
 
 log = logging.getLogger("docproc")
 _stop = False
@@ -91,6 +91,10 @@ def run() -> None:
                 )
             elif job.kind == "revision.impact":
                 result = revision_impact.handle(conn, job.project_id, job.payload, on_progress)
+            elif job.kind == "productivity.import":
+                result = productivity_import.handle(
+                    conn, storage, job.project_id, job.payload, on_progress
+                )
             else:
                 raise ValueError(f"Tipo de job nao suportado por este worker: {job.kind}")
 

@@ -308,8 +308,13 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
       source: z.string().min(5, 'Informe a fonte do indice (historico, orcamento, norma). Sem fonte o indice nao calcula duracao.'),
       sourceDate: z.string(),
     }).parse(req.body);
+    // Indice digitado por humano identificado ja nasce aprovado; o importado de
+    // arquivo nasce PENDENTE e passa pela conferencia.
     const created = await prisma.productivityIndex.create({
-      data: { projectId: id, ...body, sourceDate: new Date(body.sourceDate) },
+      data: {
+        projectId: id, ...body, sourceDate: new Date(body.sourceDate),
+        approvalStatus: 'APPROVED', approvedBy: u.id, approvedAt: new Date(),
+      },
     });
     await audit({ projectId: id, userId: u.id, action: 'PRODUCTIVITY_CREATED', entity: 'ProductivityIndex', entityId: created.id, after: created });
     return reply.status(201).send(created);
@@ -319,6 +324,10 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
     const u = currentUser(req);
     const { id } = z.object({ id: z.string() }).parse(req.params);
     await requireMembership(u.id, id);
-    return prisma.productivityIndex.findMany({ where: { projectId: id }, orderBy: { code: 'asc' } });
+    return prisma.productivityIndex.findMany({
+      where: { projectId: id },
+      include: { import: { select: { id: true, fileName: true, sha256: true, createdAt: true } } },
+      orderBy: [{ approvalStatus: 'asc' }, { code: 'asc' }],
+    });
   });
 }

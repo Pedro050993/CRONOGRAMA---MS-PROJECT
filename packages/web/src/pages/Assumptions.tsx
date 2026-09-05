@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { useApi } from '../lib/hooks';
 import { fmtDateTime } from '../lib/format';
 import { AsyncBoundary, Card, Field, Notice } from '../components/Ui';
+import { Productivity } from '../components/Productivity';
 
 interface Assumption {
   id: string; statement: string; rationale: string | null; source: string | null;
@@ -45,6 +46,8 @@ export function Assumptions(): JSX.Element {
       </div>
 
       {msg && <Notice tone="ok">{msg}</Notice>}
+
+      <Productivity projectId={projectId!} />
 
       <Notice tone="info" title="Premissa nao e fato">
         Uma premissa e uma condicao adotada para permitir a analise. Ela nunca vira dado do projeto

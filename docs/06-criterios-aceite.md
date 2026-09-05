@@ -40,10 +40,10 @@ concluído.
 ## Como rodar
 
 ```bash
-npm test              # core (142) + api (60)
+npm test              # core (163) + api (76)
 npm run test:e2e      # navegador (7)
-cd services/docproc && pytest                        # 24 de unidade
+cd services/docproc && pytest                        # 29 de unidade
 DOCPROC_TEST_DATABASE_URL=... pytest                 # + 8 de integração
 ```
 
-Total atual: **241 testes automatizados**.
+Total atual: **283 testes automatizados**.

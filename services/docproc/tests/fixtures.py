@@ -49,3 +49,39 @@ MATERIAL LIST
 3   2      FLANGE WN RF 300#             10"
 4   1      GATE VALVE 300#               10"
 """
+
+
+PRODUCTIVITY_TABLE_TEXT = """BASE DE PRODUTIVIDADE - TUBULACAO
+Emitida em 15/01/2026
+
+Codigo        Servico                        Indice     Unidade    Base         Data
+IDX-MONT      Montagem de tubulacao          0,90       in-dia     Orcado       15/01/2026
+IDX-SOLD      Soldagem carbono               1,40       in-dia     Historico    15/01/2026
+IDX-SUP       Instalacao de suporte          4,50       un         Observado    15/01/2026
+IDX-RUIM      Servico com unidade estranha   2,00       vara       Orcado       15/01/2026
+"""
+
+
+def make_productivity_pdf() -> bytes:
+    """PDF com a tabela posicionada em colunas, como uma base real emitida em PDF."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=842, height=595)
+    columns = [40, 150, 400, 480, 570, 680]
+    rows = [
+        ["Codigo", "Servico", "Indice", "Unidade", "Base", "Data"],
+        ["IDX-MONT", "Montagem de tubulacao", "0,90", "in-dia", "Orcado", "15/01/2026"],
+        ["IDX-SOLD", "Soldagem carbono", "1,40", "in-dia", "Historico", "15/01/2026"],
+        ["IDX-SUP", "Instalacao de suporte", "4,50", "un", "Observado", "15/01/2026"],
+        ["IDX-RUIM", "Servico estranho", "2,00", "vara", "Orcado", "15/01/2026"],
+    ]
+    page.insert_text((40, 40), "BASE DE PRODUTIVIDADE - TUBULACAO", fontsize=11, fontname="cour")
+    y = 80
+    for row in rows:
+        for x, cell in zip(columns, row):
+            page.insert_text((x, y), cell, fontsize=9, fontname="cour")
+        y += 20
+    data = doc.tobytes()
+    doc.close()
+    return data

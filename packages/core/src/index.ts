@@ -11,6 +11,8 @@ export * from './quantities/types.js';
 export * from './quantities/rollup.js';
 export * from './calendar/index.js';
 export * from './schedule/duration.js';
+export * from './productivity/types.js';
+export * from './productivity/import.js';
 export * from './network/types.js';
 export * from './network/cpm.js';
 export * from './wbs/index.js';
