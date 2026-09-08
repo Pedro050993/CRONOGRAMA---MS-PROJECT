@@ -1,0 +1,11 @@
+# Worker de processamento documental — Fase 1
+psycopg[binary]==3.2.3
+PyMuPDF==1.25.1
+Pillow==11.0.0
+boto3==1.35.76
+python-dotenv==1.0.1
+
+# OCR opcional. Sem provedor configurado, regioes sem texto viram PENDENCIA
+# explicita — o worker nunca inventa conteudo.
+pytesseract==0.3.13 ; extra == "ocr"
+opencv-python-headless==4.10.0.84 ; extra == "ocr"

@@ -1,0 +1,6 @@
+BASE DE PRODUTIVIDADE - TUBULACAO;;;;;
+;;;;;
+Codigo;Servico;Indice;Unidade;Data
+IDX-MONT;Montagem de tubulacao carbono;0,90;pol-dia;15/01/2026
+IDX-SOLD;Soldagem carbono;1,40;in-dia;15/01/2026
+IDX-RUIM;Servico com unidade estranha;2,00;vara;15/01/2026
